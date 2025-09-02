@@ -1,8 +1,9 @@
 #include "solver.h"
 #include <iostream>
 #include <chrono>
-
+#include <bits/stdc++.h>
 using namespace std;
+#include <random>
 // You can add any helper functions or classes you need here.
 
 /**
@@ -39,12 +40,49 @@ double h_val(Solution &sol,const ProblemData &problem){
     }
     return tot;
 }
+
+vector<pair<Solution,int>> generate_neighbours(Solution &sol, const ProblemData & prob , int d_max){
+    vector<Solution>genn;
+    for(auto plan : sol){
+        Solution neigh = sol;
+        for(auto &trip:plan.trips){
+            set<int>st;
+            for(int i = 0;i<prob.villages.size();i++){
+                st.insert(i);
+            }
+            for(auto drop:trip.drops){
+                st.erase(drop.village_id);
+            }
+            random_device rd;
+            mt19937 gen(rd());
+            uniform_int_distribution<int> dist(0,st.size());
+            int id = dist(gen);
+            int c = 0;
+            while(c<id){
+                st.erase(st.begin());
+                c++;
+            }
+            id = *st.begin();
+            if(trip.drops.size() == 0){
+                if(2*distance(prob.cities[prob.helicopters[plan.helicopter_id].home_city_id],prob.villages[id].coords)<=d_max){
+                    uniform_real_distribution<double> dist1(0.0, 1.0);
+                    double ratio = dist1(gen);
+                    uniform_int_distribution<int> dist1(0,prob.helicopters[plan.helicopter_id].weight_capacity);
+                }
+            }
+        }
+    }
+}
 Solution solve(const ProblemData& problem) {
     cout << "Starting solver..." << endl;
 
     Solution solution;
     auto start = chrono::high_resolution_clock::now();
     while(true){
+        auto curr = chrono::high_resolution_clock::now();
+        if(chrono::duration_cast<chrono::milliseconds>(curr-start).count()>=(problem.time_limit_minutes)*60*1000){
+            break;
+        }
 
     }
     // --- START OF PLACEHOLDER LOGIC ---
