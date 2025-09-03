@@ -44,13 +44,14 @@ double h_val(Solution &sol,const ProblemData &problem){
 
 vector<pair<Solution,ProblemData>> generate_neighbours_add(Solution &sol, const ProblemData & prob){
     vector<pair<Solution,ProblemData>>genn;
-    for(auto plan : sol){
+    for(int i = 0;i<sol.size();i++){
         random_device rd;
         mt19937 gen(rd());
-        uniform_int_distribution<int>distr(0,plan.trips.size()-1);
+        uniform_int_distribution<int>distr(0,sol[i].trips.size()-1);
         int ind = distr(gen);
-        auto trip = &plan.trips[ind];
         Solution neigh = sol;
+        auto trip = &neigh[i].trips[ind];
+        auto plan = neigh[i];
         set<int>st;
         ProblemData prob1 = prob;
         for(int i = 0;i<prob.villages.size();i++){
