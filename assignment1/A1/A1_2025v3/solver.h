@@ -10,5 +10,5 @@ using ll = long long;
  * @return A Solution object containing the plan for all helicopters.
  */
 Solution solve(const ProblemData& problem);
-ll h_val(Solution &sol);
+double h_val(Solution &sol,const ProblemData &prob);
 #endif // SOLVER_H
