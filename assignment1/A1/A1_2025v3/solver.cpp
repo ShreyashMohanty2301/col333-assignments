@@ -21,7 +21,17 @@ struct CompareByFirst {
         return a.first < b.first;  // only compare first element
     }
 };
+int random_number(int l, int r) {
+    mt19937 rng(chrono::steady_clock::now().time_since_epoch().count());
+	uniform_int_distribution<int> dist(l, r);
+	return dist(rng);
+}
 
+double random_double(double min,double max){
+    mt19937 generator(chrono::steady_clock::now().time_since_epoch().count());
+    uniform_real_distribution<double> distribution(min,max);
+    return distribution(generator);
+}
 
 // double h_val(Solution &sol,const ProblemData &problem){
 //     double tot = 0.0;
@@ -60,6 +70,34 @@ struct CompareByFirst {
 //     return tot;
 // }
 // return the total distance travelled in a trip from a home city
+double distancing(const Solution &sol, int i, int ind, const ProblemData &prob){
+    if (sol[i].trips[ind].drops.empty()) {
+        return 0.0;
+    } 
+    
+    // Correctly find the helicopter and its home city coordinates.
+    const Helicopter& helicopter = prob.helicopters[sol[i].helicopter_id - 1];
+    const Point& homeCity = prob.cities[helicopter.home_city_id - 1];
+
+    double dist = 0.0;
+    Point currentPos = homeCity;
+
+    for (const auto& drop : sol[i].trips[ind].drops) {
+        const Point& villagePos = prob.villages[drop.village_id - 1].coords;
+        dist += distance(currentPos, villagePos);
+        currentPos = villagePos;
+    }
+    
+    dist += distance(currentPos, homeCity);
+    return dist;
+}
+double tot_distance(int i, const Solution &sol, const ProblemData& prob){
+    double dist = 0;
+    for (size_t j = 0; j < sol[i].trips.size(); j++) {
+        dist += distancing(sol, i, j, prob);
+    }
+    return dist;
+}
 double h_val(Solution& solution, const ProblemData& problem) {
     vector<double> food_delivered_to_village(problem.villages.size() + 1, 0.0);
     vector<double> other_delivered_to_village(problem.villages.size() + 1, 0.0);
@@ -112,121 +150,54 @@ double h_val(Solution& solution, const ProblemData& problem) {
 
     return total_value_gained - trip_cost;
 }
-bool isvalid(Solution &sol,int i ,int ind, const ProblemData &prob){
-    if(sol[i].trips[ind].drops.size()==0){
-        return true;
-    } double dist = 0.0;
-    for(int j = 0;j<(int)sol[i].trips[ind].drops.size();j++){
-        if( j == 0){
-            dist+=distance(prob.cities[sol[i].helicopter_id-1],prob.villages[sol[i].trips[ind].drops[j].village_id-1].coords);
-        }
-        else{
-            dist+=distance(prob.villages[sol[i].trips[ind].drops[j-1].village_id-1].coords,prob.villages[sol[i].trips[ind].drops[j].village_id-1].coords);
-        }
-    }
-    dist+=distance(prob.cities[sol[i].helicopter_id-1],prob.villages[sol[i].trips[ind].drops[sol[i].trips[ind].drops.size()-1].village_id-1].coords);
-    return (dist<=prob.helicopters[sol[i].helicopter_id-1].distance_capacity);
-}
-pair<Solution,ProblemData> generate_neighbours_swap(Solution &sol, ProblemData &prob , int i){
+Solution generate_neighbours_swap(Solution &sol, const ProblemData &prob , int i){
     int i2 = -1;
-    for(int j = 0;j<(int)sol.size();j++){
-        if(sol[j].helicopter_id-1 == i){
-            i2 = j;
-            break;
-        }
+    int hid = i;
+    for(size_t j = 0; j < sol.size(); j++){
+        if(sol[j].helicopter_id - 1 == i) { i2 = j; break; }
     }
-    if(i2 == -1){
-        return {sol,prob};
-    }
+    if(i2 == -1) return sol;
     i = i2;
-    if(sol[i].trips.size() == 0){
-        return {sol,prob};
-    }
-    // cout<<"hey"<<endl;
-    random_device rd;
-    mt19937 gen(rd());
-    uniform_int_distribution<int>distrind(0,sol[i].trips.size()-1);
-    int ind = distrind(gen);
-    if(sol[i].trips[ind].drops.size() < 2){
-        return {sol,prob};
-    }
-    set<int>st;
-    for(int j = 0 ;j<(int)sol[i].trips[ind].drops.size();j++){
-        st.insert(j);
-    }
-    if(st.size() == 0){
-        return {sol,prob};
-    }
-    uniform_int_distribution<int>indi(0,st.size()-1);
-    auto it = st.begin();
-    advance(it,indi(gen));
-    int i1 = *it;
-    // cout<<"i1:"<<i1<<endl;
-    st.erase(i1);
-    it = st.begin();
-    uniform_int_distribution<int>ind1(0,st.size()-1);
-    advance(it,ind1(gen));
-    int j = *it;
-    // cout<<"j:"<<j<<endl;
+    if(sol[i].trips.empty() || sol[i].trips.size() == 0) return sol;
+    int ind = random_number(0, sol[i].trips.size() - 1);
+    if(sol[i].trips[ind].drops.size() < 2) return sol;  
+    int i1 = random_number(0, sol[i].trips[ind].drops.size() - 1);
+    int j1 = random_number(0, sol[i].trips[ind].drops.size() - 1);
+    if (i1 == j1) return sol;
     Solution neigh = sol;
-    if(i1>j){
-        swap(i1,j);
+    swap(neigh[i].trips[ind].drops[i1], neigh[i].trips[ind].drops[j1]);
+    double dist = distancing(neigh, i, ind, prob);
+    if(tot_distance(i, neigh, prob) > prob.d_max || dist > prob.helicopters[hid].distance_capacity){
+        return sol; 
     }
-    // cout<<"hey"<<endl;
-    swap(neigh[i].trips[ind].drops[i1],neigh[i].trips[ind].drops[j]);
-    // cout<<"no"<<endl;
-    if(!isvalid(neigh,i,ind,prob)){
-        return {sol,prob};
-    }
-    double dist = 0;
-    for(int j = 0;j<(int)neigh[i].trips[ind].drops.size();j++){
-        if( j == 0){
-            dist+=distance(prob.cities[neigh[i].helicopter_id-1],prob.villages[neigh[i].trips[ind].drops[j].village_id-1].coords);
-        }
-        else{
-            dist+=distance(prob.villages[neigh[i].trips[ind].drops[j-1].village_id-1].coords,prob.villages[neigh[i].trips[ind].drops[j].village_id-1].coords);
-        }
-    }
-    if(neigh[i].trips[ind].drops.size()>0){
-        dist+=distance(prob.villages[neigh[i].trips[ind].drops[neigh[i].trips[ind].drops.size()-1].village_id-1].coords,prob.cities[neigh[i].helicopter_id-1]);
-    }
-    double dist2 = 0.0;
-    for(int j = 0;j<(int)sol[i].trips[ind].drops.size();j++){
-        if( j == 0){
-            dist2+=distance(prob.cities[sol[i].helicopter_id-1],prob.villages[sol[i].trips[ind].drops[j].village_id-1].coords);
-        }
-        else{
-           dist2+=distance(prob.villages[sol[i].trips[ind].drops[j-1].village_id-1].coords,prob.villages[sol[i].trips[ind].drops[j].village_id-1].coords);
-        }
-    }
-    if(sol[i].trips[ind].drops.size()>0){
-        dist2+=distance(prob.villages[sol[i].trips[ind].drops[sol[i].trips[ind].drops.size()-1].village_id-1].coords,prob.cities[sol[i].helicopter_id-1]);
-    }
-    if(prob.d_max<dist-dist2){
-        return {sol,prob};
-    }
-    ProblemData newprob = prob;
-    newprob.d_max -= (dist-dist2);
-    // cout<<"d_max"<<newprob.d_max<<endl;
-    return {neigh,newprob};
+    return neigh;
 } 
-double distancing(Solution &sol,int i ,int ind, const ProblemData &prob){
-    if(sol[i].trips[ind].drops.size()==0){
-        return 0.0;
-    } double dist = 0.0;
-    for(int j = 0;j<(int)sol[i].trips[ind].drops.size();j++){
-        if( j == 0){
-            dist+=distance(prob.cities[sol[i].helicopter_id-1],prob.villages[sol[i].trips[ind].drops[j].village_id-1].coords);
-        }
-        else{
-            dist+=distance(prob.villages[sol[i].trips[ind].drops[j-1].village_id-1].coords,prob.villages[sol[i].trips[ind].drops[j].village_id-1].coords);
-        }
+Solution generate_neighbour_delete(Solution &sol , const ProblemData &prob , int i){
+    int i2 = -1;
+    int hid = i;
+    for(size_t j = 0; j < sol.size(); j++){
+        if(sol[j].helicopter_id - 1 == i) { i2 = j; break; }
     }
-    dist+=distance(prob.cities[sol[i].helicopter_id-1],prob.villages[sol[i].trips[ind].drops[sol[i].trips[ind].drops.size()-1].village_id-1].coords);
-    return dist;
-} 
-pair<Solution,ProblemData> generate_neighbours_add(Solution &sol, ProblemData & prob,int i){
+    if(i2 == -1) return sol;
+    i = i2;
+    if(sol[i].trips.empty() || sol[i].trips.size() == 0) return sol;
+    int ind = random_number(0, sol[i].trips.size() - 1);
+    if(sol[i].trips[ind].drops.empty()) return sol;
+    int dp = random_number(0, sol[i].trips[ind].drops.size() - 1);
     Solution neigh = sol;
+    neigh[i].trips[ind].dry_food_pickup -= neigh[i].trips[ind].drops[dp].dry_food;
+    neigh[i].trips[ind].perishable_food_pickup -= neigh[i].trips[ind].drops[dp].perishable_food;
+    neigh[i].trips[ind].other_supplies_pickup -= neigh[i].trips[ind].drops[dp].other_supplies;
+    neigh[i].trips[ind].drops.erase(neigh[i].trips[ind].drops.begin() + dp);
+    if(distancing(neigh, i, ind, prob) <= prob.helicopters[hid].distance_capacity && tot_distance(i, neigh, prob) <= prob.d_max){
+        return neigh;
+    }
+    return sol;
+}
+Solution generate_neighbours_add(Solution &sol, const ProblemData & prob,int i){
+    Solution neigh = sol;
+
+    int hid = i;
     int i1 = -1;
     for(int j = 0;j<(int)sol.size();j++){
         if(sol[j].helicopter_id-1 == i){
@@ -243,9 +214,7 @@ pair<Solution,ProblemData> generate_neighbours_add(Solution &sol, ProblemData & 
         i1 = neigh.size()-1;
     }
     i = i1;
-    mt19937 gen2(chrono::steady_clock::now().time_since_epoch().count());
-    uniform_int_distribution<int>distr(0,(int)neigh[i].trips.size());
-    int ind = distr(gen2);
+    int ind = random_number(0,(int)neigh[i].trips.size());
     if(ind == (int)neigh[i].trips.size()){
         Trip newtrip;
         newtrip.drops = {};
@@ -254,208 +223,75 @@ pair<Solution,ProblemData> generate_neighbours_add(Solution &sol, ProblemData & 
         newtrip.perishable_food_pickup = 0;
         neigh[i].trips.push_back(newtrip);
     }
-    auto trip = &neigh[i].trips[ind];
-    auto plan = neigh[i];
     set<int>st;
-    ProblemData prob1 = prob;
-    for(int j = 0;j<(int)prob.villages.size();j++){
+    for(int j = 0;j<prob.villages.size();j++){
         st.insert(j);
     }
-    for(auto drop:trip->drops){
+    for(auto drop:neigh[i].trips[ind].drops){
         st.erase(drop.village_id-1);
     }
     if(st.size() == 0){
-        return {neigh,prob};
+        return sol;
     }
-    mt19937 gen1(chrono::steady_clock::now().time_since_epoch().count());
-    uniform_int_distribution<int> dist(0, (int)st.size()-1);
+    int chosen = random_number(0,st.size()-1);
     auto it = st.begin();
-    advance(it, dist(gen1));
+    advance(it,chosen);
     int id = *it;
-    if(trip->drops.size() == 0){
-        if(2*distance(prob.cities[prob.helicopters[plan.helicopter_id-1].home_city_id-1],prob.villages[id].coords)<=prob1.d_max&&2*distance(prob.cities[prob.helicopters[plan.helicopter_id-1].home_city_id-1],prob.villages[id].coords)<=prob.helicopters[plan.helicopter_id-1].distance_capacity){
-            mt19937 gen5(chrono::steady_clock::now().time_since_epoch().count());
-            uniform_real_distribution<double> dist1(0.0, 1.0);
-            double r1 = dist1(gen5);
-            double r2 = dist1(gen5);
-            double r3 = dist1(gen5);
-            double tot = r1+r2+r3;
-            r1/=tot;
-            r2/=tot;
-            r3/=tot;
-             mt19937 gen3(chrono::steady_clock::now().time_since_epoch().count());
-            uniform_real_distribution<double> dist3(0.0,prob.helicopters[plan.helicopter_id-1].weight_capacity-prob.packages[0].weight*trip->dry_food_pickup-prob.packages[2].weight*trip->other_supplies_pickup-prob.packages[1].weight*trip->perishable_food_pickup);
-            double morefood = dist3(gen3);
-            int d = (r1*morefood)/prob.packages[0].weight;
-            int p = (r2*morefood)/prob.packages[1].weight;
-            int o = (r3*morefood)/prob.packages[2].weight;
-            // cout<<"r1: "<<r1<<"r2: "<<r2<<"r3: "<<r3<<endl;
-            Drop newdrop;
-            newdrop.dry_food = d;
-            newdrop.other_supplies = o;
-            newdrop.perishable_food = p;
-            newdrop.village_id = id+1;
-            trip->dry_food_pickup+=d;
-            trip->other_supplies_pickup+=o;
-            trip->perishable_food_pickup+=p;
-            trip->drops.push_back(newdrop);
-            prob1.d_max-=2*distance(prob.cities[prob.helicopters[plan.helicopter_id-1].home_city_id-1],prob.villages[id].coords);
-        }
+    int bet = 0;
+    if(neigh[i].trips[ind].drops.size() == 0){
+        Drop newdrop;
+        newdrop.village_id = id+1;
+        neigh[i].trips[ind].drops.push_back(newdrop);
     }
     else{
-        mt19937 gen(chrono::steady_clock::now().time_since_epoch().count());
-        uniform_int_distribution<int>dist2(0,(int)trip->drops.size()-1);
-        int bet = dist2(gen);
-        double dist = distancing(sol,i,ind,prob);
-        double d1 = distance(prob.villages[trip->drops[bet].village_id-1].coords,prob.villages[id].coords);
-        double d2 = distance((bet+1 == (int)trip->drops.size()?prob.cities[prob.helicopters[plan.helicopter_id-1].home_city_id-1]:prob.villages[trip->drops[bet+1].village_id-1].coords),prob.villages[id].coords);
-        if(d1+d2 - distance(prob.villages[trip->drops[bet].village_id-1].coords,(bet+1 == (int)trip->drops.size()?prob.cities[prob.helicopters[plan.helicopter_id-1].home_city_id-1]:prob.villages[trip->drops[bet+1].village_id-1].coords))<=prob1.d_max&&d1+d1- distance(prob.villages[trip->drops[bet].village_id-1].coords,(bet+1 == (int)trip->drops.size()?prob.cities[prob.helicopters[plan.helicopter_id-1].home_city_id-1]:prob.villages[trip->drops[bet+1].village_id-1].coords))+dist<=prob.helicopters[plan.helicopter_id-1].distance_capacity){
-             mt19937 gen8(chrono::steady_clock::now().time_since_epoch().count());
-            uniform_real_distribution<double> dist1(0.0, 1.0);
-            double r1 = dist1(gen8);
-            double r2 = dist1(gen8);
-            double r3 = dist1(gen8);
-            double tot = r1+r2+r3;
-            r1/=tot;
-            r2/=tot;
-            r3/=tot;
-             mt19937 gen9(chrono::steady_clock::now().time_since_epoch().count());
-            uniform_real_distribution<double> dist3(0.0,prob.helicopters[plan.helicopter_id-1].weight_capacity-prob.packages[0].weight*trip->dry_food_pickup-prob.packages[2].weight*trip->other_supplies_pickup-prob.packages[1].weight*trip->perishable_food_pickup);
-            double morefood = dist3(gen9);
-            int d = (r1*morefood)/prob.packages[0].weight;
-            int p = (r2*morefood)/prob.packages[1].weight;
-            int o = (r3*morefood)/prob.packages[2].weight;
-            Drop newdrop;
-            newdrop.dry_food = d;
-            newdrop.other_supplies = o;
-            newdrop.perishable_food = p;
-            newdrop.village_id = id+1;
-            trip->dry_food_pickup+=d;
-            trip->other_supplies_pickup+=o;
-            trip->perishable_food_pickup+=p;
-            trip->drops.insert(trip->drops.begin()+bet+1,newdrop);
-            prob1.d_max-=(d1+d2 - distance(prob.villages[trip->drops[bet].village_id-1].coords,(bet+1 == (int)trip->drops.size()?prob.cities[prob.helicopters[plan.helicopter_id-1].home_city_id-1]:prob.villages[trip->drops[bet+1].village_id-1].coords)));
+        Drop newdrop;
+        newdrop.village_id = id+1;
+        bet = random_number(0,neigh[i].trips[ind].drops.size()-1);
+        neigh[i].trips[ind].drops.insert(neigh[i].trips[ind].drops.begin()+bet,newdrop);
+    }
+    if(tot_distance(i,neigh,prob)<=prob.d_max && distancing(neigh,i,ind,prob)<=prob.helicopters[hid].distance_capacity){
+        double cap = prob.helicopters[hid].weight_capacity - neigh[i].trips[ind].dry_food_pickup*prob.packages[0].weight - neigh[i].trips[ind].perishable_food_pickup*prob.packages[1].weight - neigh[i].trips[ind].other_supplies_pickup*prob.packages[2].weight;
+        int pmax = cap/prob.packages[1].weight;
+        int p = random_number(pmax/3 , pmax);
+        int dfnl = cap-p*prob.packages[1].weight;
+        int df = random_double(dfnl/10,dfnl);
+        int ratio = random_double(0,1);
+        int d = (ratio*dfnl)/prob.packages[0].weight;
+        int o = ((1-ratio)*dfnl)/prob.packages[2].weight;
+        if(cap>=p*prob.packages[1].weight + d*prob.packages[0].weight + o*prob.packages[2].weight){
+            neigh[i].trips[ind].drops[bet].dry_food = d;
+            neigh[i].trips[ind].drops[bet].perishable_food = p;
+            neigh[i].trips[ind].drops[bet].other_supplies = o;
+            neigh[i].trips[ind].dry_food_pickup+=d;
+            neigh[i].trips[ind].perishable_food_pickup+=p;
+            neigh[i].trips[ind].other_supplies_pickup+=o;
+            return neigh;
         }
     }
-    return {neigh,prob1};
+    return sol;
 }
-pair<Solution,ProblemData> Random_state_generator(ProblemData &prob , vector<int>&close){
-    Solution sol = {};
-    ProblemData newprob = prob;
-    int count = 0;
+// This is the corrected version of the initial solution generator.
+// It is designed to always produce a valid solution.
+Solution Random_state_generator(const ProblemData &prob){
+    Solution sol;
     for(int i = 0;i<prob.helicopters.size();i++){
-        mt19937 gen(chrono::steady_clock::now().time_since_epoch().count());
-        int max_travels = newprob.d_max/(1+distance(newprob.villages[close[i]].coords,newprob.cities[newprob.helicopters[i].home_city_id-1]));
-        uniform_int_distribution<int>distr(0,max_travels);
-        int num_trips = distr(gen);
-        HelicopterPlan hi;
-        hi.helicopter_id = i+1;               
-        hi.trips = {};
-        for(int j =0;j<num_trips;j++){
-          
-            mt19937 gen1(chrono::steady_clock::now().time_since_epoch().count());
-            uniform_int_distribution<int>distrind(0,newprob.villages.size());
-            int numvisited = distrind(gen1);
-            set<int>st;
-            double curr_dist = 0;
-            double curr_id = -1;
-            Trip newtrip;
-            newtrip.drops = {};
-            newtrip.dry_food_pickup = 0;
-            newtrip.other_supplies_pickup = 0;
-            newtrip.perishable_food_pickup = 0;
-            for(int k = 0 ;k<numvisited;k++){
-                mt19937 gen2(chrono::steady_clock::now().time_since_epoch().count());
-                uniform_int_distribution<int>distrin(0,newprob.villages.size()-1);
-                int visid = distrin(gen2);
-                if(st.find(visid)==st.end()){
-                    if(curr_id == -1){
-                        curr_dist += distance(newprob.villages[visid].coords,newprob.cities[newprob.helicopters[i].home_city_id-1]);
-                    }
-                    else{
-                        curr_dist += distance(newprob.villages[visid].coords,newprob.villages[curr_id].coords);
-                    }
-                    if(curr_dist+distance(newprob.cities[newprob.helicopters[i].home_city_id-1],newprob.villages[visid].coords)<=newprob.helicopters[i].distance_capacity && curr_dist+distance(newprob.cities[newprob.helicopters[i].home_city_id-1],newprob.villages[visid].coords)<=newprob.d_max){
-                        curr_id = visid;
-                        st.insert(visid);
-                        Drop newdrop;
-                        newdrop.village_id = visid+1;
-                        newdrop.dry_food = 0;
-                        newdrop.other_supplies = 0;
-                        newdrop.perishable_food = 0;
-                        newtrip.drops.push_back(newdrop);
-                    }
-                    else{
-                        if(curr_id == -1){
-                            curr_dist -= distance(newprob.villages[visid].coords,newprob.cities[newprob.helicopters[i].home_city_id-1]);
-                        }
-                        else{
-                            curr_dist -= distance(newprob.villages[visid].coords,newprob.villages[curr_id].coords);
-                        }
-                    }
-                }
-            }
-            if(curr_id!=-1){
-                newprob.d_max-=curr_dist+distance(newprob.cities[newprob.helicopters[i].home_city_id-1],newprob.villages[curr_id].coords);
-            } 
-            hi.trips.push_back(newtrip);
-        }
-        sol.push_back(hi);
-    }
-    for(auto &plan : sol){
-        if(plan.trips.size()>0){
-            for(int i = 0;i<plan.trips.size();i++){
-                double curr = newprob.helicopters[plan.helicopter_id-1].weight_capacity;
-                if(plan.trips[i].drops.size()>0){
-                    for(int j = 0;j<plan.trips[i].drops.size();j++){
-                        mt19937 gen3(chrono::steady_clock::now().time_since_epoch().count());
-                        uniform_int_distribution<int>distrin(min((int)(curr/newprob.packages[1].weight),9*newprob.villages[plan.trips[i].drops[j].village_id-1].population/2),min(9*newprob.villages[plan.trips[i].drops[j].village_id-1].population,(int)(curr/newprob.packages[1].weight)));
-                        int p = distrin(gen3);
-                        plan.trips[i].perishable_food_pickup+=p;
-                        plan.trips[i].drops[j].perishable_food+=p;
-                        curr-=p*newprob.packages[1].weight;
-                        mt19937 gen4(chrono::steady_clock::now().time_since_epoch().count());
-                        uniform_int_distribution<int>distrin1(0,min(9*newprob.villages[plan.trips[i].drops[j].village_id-1].population-p,(int)(curr/newprob.packages[0].weight)));
-                        int d = distrin1(gen4);
-                        plan.trips[i].dry_food_pickup+=d;
-                        plan.trips[i].drops[j].dry_food+=d;
-                        curr-=d*newprob.packages[0].weight;
-                        mt19937 gen5(chrono::steady_clock::now().time_since_epoch().count());
-                        uniform_int_distribution<int>distrin2(0,min(newprob.villages[plan.trips[i].drops[j].village_id-1].population,(int)(curr/newprob.packages[2].weight)));
-                        int o = distrin2(gen5);
-                        plan.trips[i].other_supplies_pickup+=o;
-                        plan.trips[i].drops[j].other_supplies+=o;
-                        curr-=o*newprob.packages[2].weight;
-                    }
-                }
+        double probi = random_double(0.0,1.0);
+        if(probi>0.3){
+            while(random_double(0.0,1.0)>0.5){
+                sol = generate_neighbours_add(sol,prob,i);
             }
         }
     }
-    return {sol,newprob};
+    return sol;
 }
 Solution solve(const ProblemData& problem) {
     cout << "Starting solver..." << endl;
     ProblemData prob = problem;
     ProblemData prob2 = problem;
     auto start_time = steady_clock::now();
-    vector<int>close(prob.helicopters.size());
-    // cout<<"hi"<<endl;
-    for(int i = 0;i<prob.helicopters.size();i++){
-        int curr = -1;
-        double dist = DBL_MAX;
-        for(int j = 0;j<prob.villages.size();j++){
-            if(distance(prob.villages[j].coords,prob.cities[prob.helicopters[i].home_city_id-1])<dist){
-                dist = distance(prob.villages[j].coords,prob.cities[prob.helicopters[i].home_city_id-1]);
-                curr = j;
-            }
-        }
-        close[i] = curr;
-    }
-    pair<Solution,ProblemData> fin = Random_state_generator(prob,close);
-    Solution finsol = fin.first;
-    prob = fin.second;
+    Solution finsol = Random_state_generator(prob);
     auto allowed_duration = milliseconds(long(prob.time_limit_minutes * 60 * 1000));
-    auto buffer = milliseconds(50); // 50ms safety margin
+    auto buffer = milliseconds(1000); // 50ms safety margin
     auto deadline = start_time + allowed_duration - buffer;
     double currhval = h_val(finsol,prob);
     Solution bestsol = finsol;
@@ -467,102 +303,72 @@ Solution solve(const ProblemData& problem) {
     uniform_real_distribution<double> move_dist(0.0, 1.0);
     int iterations_at_temp = 0;
     const int MOVES_PER_TEMP_STEP = 100;
-    while(steady_clock::now() < deadline){
-                //solve
-            // count++;
-            // if(count%2500 == 0){
-            //     cout<<"count:"<<count<<' '<<h_val(bestsol,prob)<<endl;
-            //     fin = Random_state_generator(prob,close);
-            //     finsol = fin.first;
-            //     prob = fin.second;
-            // }
-            auto current_time = steady_clock::now();
-            auto elapsed_duration = duration_cast<milliseconds>(current_time - start_time);
-            double elapsed_ratio = (double)elapsed_duration.count() / allowed_duration.count();
-            double swap_probability = 0.2 + (0.2 * elapsed_ratio);
-            
-            mt19937 gen(chrono::steady_clock::now().time_since_epoch().count());
-            uniform_int_distribution<int>distr(0,prob.helicopters.size()-1);
-            mt19937 gen10(chrono::steady_clock::now().time_since_epoch().count());
-            uniform_real_distribution<double> move_dist(0.0, 1.0);
-            bool ok = false;
-            int i = distr(gen);
-            // for(int i = 0;i<(int)prob.helicopters.size();i++){
-                // double probi = distr(gen);
-                // Solution neigh;
-                // ProblemData neprob;
-                pair<Solution,ProblemData>neigh;
-                if(move_dist(gen10)<=0.5){
-                    neigh = generate_neighbours_add(finsol,prob,i);
-                    // double h = h_val(neigh1.first,neigh1.second);
-                    // if(h>currhval){
-                    //     finsol = neigh1.first;
-                    //     prob = neigh1.second;
-                    //     ok = true;
-                    //     bestsol = finsol;
-                    //     currhval = h;
-                    // }
-                }
-                else{
-                    neigh = generate_neighbours_swap(finsol,prob,i);
-                    // dh = h_val(neigh.first,neigh.second);
-                    // if(h>currhval){
-                    //     finsol = neigh.first;
-                    //     prob = neigh.second;
-                    //     ok = true;
-                    //     bestsol = finsol;
-                    //     currhval = h;
-                    // }
-                    // pair<Solution,ProblemData>ni = generate_neighbours_swap(finsol, prob, i);
-                    // neigh = ni.first;
-                    // neprob = ni.second;
-                }
-                 double h = h_val(neigh.first, problem);
-                double score_diff = h - currhval;
-                if (score_diff > 0 || acceptance_dist(gen) < exp(score_diff / temperature)) {
-            // If we accept, the neighbor becomes our new current solution.
-                    finsol = neigh.first;
-                    currhval = h;
-                    prob = neigh.second;
-                }
-                if (currhval > best) {
-                    bestsol = finsol;
-                    best = currhval;
-                }
-                // double h = h_val(neigh, prob);
-                // double score_diff = h - currhval;
-                // if (score_diff > 0 || acceptance_dist(gen) < exp(score_diff / temperature)) {
-                //     finsol = neigh;
-                //     currhval = h;
-                //     prob = neprob;
-                // }
+    // --- Start of the main loop to replace ---
 
-                // // Update the best-ever solution found
-                // if (currhval > best) {
-                //     bestsol = finsol;
-                //     best = currhval;
-                // }
-                
-                // // Cool down the temperature for the next iteration
-                // temperature *= cooling_rate;
-            // }
-            // if(!ok){
-            //     fin = Random_state_generator(prob,close);
-            //     finsol = fin.first;
-            //     prob = fin.second;
-            //     double h = h_val(finsol,prob);
-            //     cout<<"count:"<<count<<' '<<h_val(bestsol,prob)<<endl;
-            //     if(h>currhval){
-            //         currhval = h;
-            //         bestsol = finsol;  
-            //     }
-            // }
-            iterations_at_temp++;
-            if (iterations_at_temp >= MOVES_PER_TEMP_STEP) {
-                temperature *= cooling_rate;
-                iterations_at_temp = 0; // Reset the counter for the new temperature.
-            }
-            cout<<"val:"<<currhval<<endl;
+    // Create a single random number generator before the loop for efficiency.
+    mt19937 gen(chrono::steady_clock::now().time_since_epoch().count());
+
+    while(steady_clock::now() < deadline){
+        count++;
+
+        // Restart logic (can be kept or removed in SA, but let's keep your structure)
+        // if(count % 2500 == 0){
+        //     cout << "count:" << count << ' ' << h_val(bestsol, prob2) << endl;
+        //     fin = Random_state_generator(prob2, close);
+        //     finsol = fin.first;
+        //     prob = fin.second;
+        //     currhval = h_val(finsol, prob); // Recalculate hval for the new state
+        // }
+        
+        // Randomly select a helicopter to modify
+        uniform_int_distribution<int> distr(0, problem.helicopters.size() - 1);
+        int i = distr(gen);
+
+        // This is a CRITICAL change. You must create a const copy of the
+        // current problem state for the neighbor functions. Do not modify the original.
+        Solution neigh;
+
+        // Choose a move (add or swap)
+        double probi = random_double(0,1);
+        if(probi <=0.6){
+            neigh = generate_neighbours_add(finsol, prob, i);
+        } else if(probi<=0.8){
+            neigh = generate_neighbours_swap(finsol, prob, i);
+        }
+        else{
+            neigh = generate_neighbour_delete(finsol,prob,i);
+        }
+
+        // --- CORE SIMULATED ANNEALING LOGIC ---
+        
+        // 1. Calculate the score of the new neighbor solution.
+        //    IMPORTANT: Use the original 'problem' object here for a consistent score evaluation.
+        double h = h_val(neigh, prob);
+        
+        // 2. Find the difference in score. A positive value means the new solution is better.
+        double score_diff = h - currhval;
+
+        // 3. The Acceptance Criterion:
+        //    - If the new solution is better (score_diff > 0), we ALWAYS accept it.
+        //    - If it's worse, we MIGHT accept it based on the probability `exp(score_diff / temperature)`.
+        if (score_diff > 0 || acceptance_dist(gen) < exp(score_diff / temperature)) {
+            // If accepted, the neighbor becomes our new current solution.
+            finsol = neigh; // Update the problem state (with the new d_max)
+            currhval = h;
+        }
+        // --- END OF CORE LOGIC ---
+
+
+        // Update the best-ever solution if the current one is an improvement.
+        if (currhval > best) {
+            bestsol = finsol;
+            best = currhval;
+        }
+
+        // Cool down the temperature to make accepting worse solutions less likely over time.
+        temperature *= cooling_rate;
+        
+        cout << "val:" << currhval << endl;
     }
     // // --- START OF PLACEHOLDER LOGIC ---
     // // This is a naive example: send each helicopter on one trip to the first village.
